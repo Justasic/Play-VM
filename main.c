@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 
 // our instruction macro (makes it easier to write instructions)
 #define INSTR(instr, r0, r1, r2, imm) ((instr << 12) | (r0 << 8) | (r1 << 4) | r2 | imm)
@@ -46,7 +47,7 @@ unsigned program[] =
 };
 #endif
 
-unsigned program[] =
+static const unsigned program[] =
 {
 	INSTR(OP_LOADI, 0, 0, 0, 100), // loadi r0, 100
 	INSTR(OP_LOADI, 1, 0, 0, 200), // loadi r1, 200
@@ -63,7 +64,7 @@ int fetch()
 	if (pc > sizeof(program))
 	{
 		printf("WARNING: unterminated program!\n");
-		return OP_HALT;
+		return INSTR(OP_HALT, 0, 0, 0, 0);
 	}
 	return program[pc++];
 }
@@ -99,7 +100,8 @@ void eval()
 	{
 		case OP_UNUSED:
 			// ignore but print warning
-			printf("Unused opcode encountered... Ignoring!\n");
+			printf("Unused opcode encountered... halting!\n");
+			running = 0;
 		case OP_NOOP:
 			// No-Operation
 			break;
@@ -145,12 +147,16 @@ void showRegs()
  
 void run()
 {
+	printf("Program length: %lu instructions\n", sizeof(program));
+	printf("Program size: %lu bytes\n", sizeof(program) * sizeof(unsigned));
 	while(running)
 	{
 		showRegs();
 		int instr = fetch();
 		decode(instr);
 		eval();
+		// Slow down our program so we can debug easier
+		//sleep(1);
 	}
 	showRegs();
 }
