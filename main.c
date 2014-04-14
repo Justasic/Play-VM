@@ -47,7 +47,7 @@ int pc = 0;
 /* fetch the next word from the program */
 int fetch()
 {
-    return program[pc++];
+	return program[pc++];
 }
  
 /* instruction fields */
@@ -60,11 +60,11 @@ int imm      = 0;
 /* decode a word */
 void decode(int instr)
 {
-    instrNum = (instr & 0xF000) >> 12;
-    reg1     = (instr & 0xF00 ) >>  8;
-    reg2     = (instr & 0xF0  ) >>  4;
-    reg3     = (instr & 0xF   );
-    imm      = (instr & 0xFF  );
+	instrNum = (instr & 0xF000) >> 12;
+	reg1     = (instr & 0xF00 ) >>  8;
+	reg2     = (instr & 0xF0  ) >>  4;
+	reg3     = (instr & 0xF   );
+	imm      = (instr & 0xFF  );
 }
  
 /* the VM runs until this flag becomes 0 */
@@ -110,13 +110,13 @@ void eval()
 /* display all registers as 4-digit hexadecimal words */
 void showRegs()
 {
-    int i;
-    printf("regs = ");
+	int i;
+	printf("regs = ");
 
-    for(i = 0; i < NUM_REGS; i++)
-        printf("%04X ", regs[i]);
+	for(i = 0; i < NUM_REGS; i++)
+		printf("%04X ", regs[i]);
 
-    printf( "\n" );
+	printf( "\n" );
 }
  
 void run()
