@@ -1,4 +1,7 @@
 #include <stdio.h>
+
+// our instruction macro (makes it easier to write instructions)
+#define INSTR(instr, r0, r1, r2, imm) ((instr << 12) | (r0 << 8) | (r1 << 4) | r2 | imm)
  
 // 3 registers for us to use
 #define NUM_REGS 4
@@ -32,13 +35,23 @@ static const opcodes_t OpTable[] = {
 	{OP_SUB,    "SUB"},
 	{OP_DIV,    "DIV"}
 };
- 
+
+#if 0
 unsigned program[] =
 {
 	0x1064,    // loadi r0, 100
 	0x11C8,    // loadi r1, 200
 	0x2201,    // add r2, r0, r1
 	0x0000     // halt
+};
+#endif
+
+unsigned program[] =
+{
+	INSTR(OP_LOADI, 0, 0, 0, 100), // loadi r0, 100
+	INSTR(OP_LOADI, 1, 0, 0, 200), // loadi r1, 200
+	INSTR(OP_ADD,   2, 0, 1, 0),   // add r2, r0, r1
+	INSTR(OP_HALT,  0, 0, 0, 0)    // halt
 };
  
 /* program counter */
@@ -80,7 +93,7 @@ void eval()
 {
 	// In case we hit an unknown instruction.
 	if (instrNum <= sizeof(OpTable))
-		printf("%s {r0: %d, r1: %d, r2: %d}\n", OpTable[instrNum].opcodename, reg1, reg2, reg3);
+		printf("%s {r0: %d, r1: %d, r2: %d} imm %d\n", OpTable[instrNum].opcodename, reg1, reg2, reg3, imm);
 	
 	switch(instrNum)
 	{
