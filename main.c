@@ -47,6 +47,11 @@ int pc = 0;
 /* fetch the next word from the program */
 int fetch()
 {
+	if (pc > sizeof(program))
+	{
+		printf("WARNING: unterminated program!\n");
+		return OP_HALT;
+	}
 	return program[pc++];
 }
  
@@ -73,7 +78,10 @@ int running = 1;
 /* evaluate the last decoded instruction */
 void eval()
 {
-	printf("%s {r0: %d, r1: %d, r2: %d}\n", OpTable[instrNum].opcodename, reg1, reg2, reg3);
+	// In case we hit an unknown instruction.
+	if (instrNum <= sizeof(OpTable))
+		printf("%s {r0: %d, r1: %d, r2: %d}\n", OpTable[instrNum].opcodename, reg1, reg2, reg3);
+	
 	switch(instrNum)
 	{
 		case OP_UNUSED:
@@ -88,12 +96,12 @@ void eval()
 			break;
 		case OP_LOADI:
 			/* loadi */
-		// 		printf("loadi r%d #%d\n", reg1, imm);
+// 			printf("loadi r%d #%d\n", reg1, imm);
 			regs[reg1] = imm;
 			break;
 		case OP_ADD:
 			/* add */
-		// 		printf("add r%d r%d r%d\n", reg1, reg2, reg3);
+// 			printf("add r%d r%d r%d\n", reg1, reg2, reg3);
 			regs[reg1] = regs[reg2] + regs[reg3];
 			break;
 		case OP_SUB:
@@ -104,6 +112,9 @@ void eval()
 			break;
 		default:
 			printf("Unknown instruction %d\n", instrNum);
+			printf("halting.\n");
+			running = 0;
+			break;
 	}
 }
  
