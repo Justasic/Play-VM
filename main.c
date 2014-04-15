@@ -37,16 +37,7 @@ static const opcodes_t OpTable[] = {
 	{OP_DIV,    "DIV"}
 };
 
-#if 0
-unsigned program[] =
-{
-	0x1064,    // loadi r0, 100
-	0x11C8,    // loadi r1, 200
-	0x2201,    // add r2, r0, r1
-	0x0000     // halt
-};
-#endif
-
+// Our program
 static const unsigned program[] =
 {
 	INSTR(OP_LOADI, 0, 0, 0, 100), // loadi r0, 100
@@ -54,29 +45,29 @@ static const unsigned program[] =
 	INSTR(OP_ADD,   2, 0, 1, 0),   // add r2, r0, r1
 	INSTR(OP_HALT,  0, 0, 0, 0)    // halt
 };
- 
-/* program counter */
+
+// program counter
 int pc = 0;
- 
-/* fetch the next word from the program */
+
+// fetch the next word from the program
 int fetch()
 {
-	if (pc > sizeof(program))
+	if (pc > (sizeof(program) / sizeof(*program)))
 	{
 		printf("WARNING: unterminated program!\n");
 		return INSTR(OP_HALT, 0, 0, 0, 0);
 	}
 	return program[pc++];
 }
- 
-/* instruction fields */
+
+// instruction fields
 int instrNum = 0;
 int reg1     = 0;
 int reg2     = 0;
 int reg3     = 0;
 int imm      = 0;
- 
-/* decode a word */
+
+// decode a word
 void decode(int instr)
 {
 	instrNum = (instr & 0xF000) >> 12;
@@ -85,11 +76,11 @@ void decode(int instr)
 	reg3     = (instr & 0xF   );
 	imm      = (instr & 0xFF  );
 }
- 
-/* the VM runs until this flag becomes 0 */
+
+// the VM runs until this flag becomes 0
 int running = 1;
- 
-/* evaluate the last decoded instruction */
+
+// evaluate the last decoded instruction
 void eval()
 {
 	// In case we hit an unknown instruction.
@@ -100,40 +91,42 @@ void eval()
 	{
 		case OP_UNUSED:
 			// ignore but print warning
-			printf("Unused opcode encountered... halting!\n");
-			running = 0;
+			printf("Unused opcode encountered... ignoring!\n");
 		case OP_NOOP:
 			// No-Operation
 			break;
 		case OP_HALT:
-			/* halt */
+			// halt the program
 			running = 0;
 			break;
 		case OP_LOADI:
-			/* loadi */
+			// load static value into register
 // 			printf("loadi r%d #%d\n", reg1, imm);
 			regs[reg1] = imm;
 			break;
 		case OP_ADD:
-			/* add */
+			// Add values together
 // 			printf("add r%d r%d r%d\n", reg1, reg2, reg3);
 			regs[reg1] = regs[reg2] + regs[reg3];
 			break;
 		case OP_SUB:
+			// Subtract values
 			regs[reg1] = regs[reg2] - regs[reg3];
 			break;
 		case OP_DIV:
+			// Divide values
 			regs[reg1] = regs[reg2] / regs[reg3];
 			break;
 		default:
+			// Handle unknown opcodes
 			printf("Unknown instruction %d\n", instrNum);
 			printf("halting.\n");
 			running = 0;
 			break;
 	}
 }
- 
-/* display all registers as 4-digit hexadecimal words */
+
+// display all registers as 4-digit hexadecimal words
 void showRegs()
 {
 	int i;
@@ -144,11 +137,11 @@ void showRegs()
 
 	printf( "\n" );
 }
- 
+
 void run()
 {
-	printf("Program length: %lu instructions\n", sizeof(program));
-	printf("Program size: %lu bytes\n", sizeof(program) * sizeof(unsigned));
+	printf("Program length: %lu instructions\n", sizeof(program) / sizeof(*program));
+	printf("Program size: %lu bytes\n", sizeof(program));
 	while(running)
 	{
 		showRegs();
@@ -160,10 +153,9 @@ void run()
 	}
 	showRegs();
 }
- 
+
 int main(int argc, const char *argv[])
 {
 	run();
 	return 0;
 }
-
