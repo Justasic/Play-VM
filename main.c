@@ -24,21 +24,22 @@ enum
 	OP_XOR    = 0x07, // bitwise exclusive or register(s)
 	OP_NOT    = 0x08, // bitwise not register
 	OP_OR     = 0x09, // bitwise or register(s)
-	OP_AND    = 0x10, // bitwise and register(s)
-	OP_SHL    = 0x11, // bitwise shift left register
-	OP_SHR    = 0x12, // bitwise shift right register
-	OP_INC    = 0x13, // increment register
-	OP_DEC    = 0x14, // decrement register
-	OP_CMP    = 0x15, // compare 2 registers
+	OP_AND    = 0x0A, // bitwise and register(s)
+	OP_SHL    = 0x0B, // bitwise shift left register
+	OP_SHR    = 0x0C, // bitwise shift right register
+	OP_INC    = 0x0D, // increment register
+	OP_DEC    = 0x0E, // decrement register
+	OP_CMP    = 0x0F, // compare 2 registers
+	OP_MOV    = 0x10, // move value from one register to another
 	
 	// Not implemented -- requres stack
-	OP_CALL   = 0x20, // Call a function
-	OP_RET    = 0x21, // return from a function call
-	OP_PUSH   = 0x22, // push value from register to stack
-	OP_POP    = 0x23, // pop value from stack to register
-	OP_JMP    = 0x24, // jump always to location
-	OP_JNZ    = 0x25, // jump if not zero to location
-	OP_JZ     = 0x26, // jump if zero to location
+	OP_CALL   = 0x1A, // Call a function
+	OP_RET    = 0x1B, // return from a function call
+	OP_PUSH   = 0x1C, // push value from register to stack
+	OP_POP    = 0x1D, // pop value from stack to register
+	OP_JMP    = 0x1E, // jump always to location
+	OP_JNZ    = 0x1F, // jump if not zero to location
+	OP_JZ     = 0x20, // jump if zero to location
 	
 	
 	// Extra opcodes
@@ -71,6 +72,7 @@ static const opcodes_t OpTable[] = {
 	{OP_INC,    "INC"},
 	{OP_DEC,    "DEC"},
 	{OP_CMP,    "CMP"},
+	{OP_MOV,    "MOV"},
 	
 	// Not implemented -- requres stack
 	{OP_CALL,   "CALL"},
@@ -99,6 +101,9 @@ static const unsigned program[] =
 	INSTR(OP_PRNT,  2, 0, 0, 0),   // prnt r2         -- Print the r2 register to terminal
 	INSTR(OP_SUB,   2, 1, 0, 0),   // sub r2 = r0, r1 -- Subtract r0 from r1, place value in r2
 	INSTR(OP_DMP,   0, 0, 0, 0),   // dmp             -- Dump registers to terminal
+	INSTR(OP_MOV,   2, 0, 0, 0),   // mov r2, r0
+	INSTR(OP_MOV,   2, 1, 0, 0),   // mov r2, r1
+	INSTR(OP_MOV,   2, 3, 0, 0),   // mov r2, r3
 	INSTR(OP_HALT,  0, 0, 0, 0),    // halt
 	INSTR(OP_HUGE,  0, 0, 0, 0)
 };
@@ -107,7 +112,7 @@ static const unsigned program[] =
 int pc = 0;
 
 // fetch the next word from the program
-int fetch()
+int fetch(void)
 {
 	if (pc > (sizeof(program) / sizeof(*program)))
 	{
@@ -146,7 +151,7 @@ void decode(int instr)
 int running = 1;
 
 // evaluate the last decoded instruction
-void eval()
+void eval(void)
 {
 	// In case we hit an unknown instruction.
 	if (instrNum <= (sizeof(OpTable) / sizeof(*OpTable)))
@@ -217,6 +222,11 @@ void eval()
 			// compare 2 registers together
 			regs[reg1] = (regs[reg2] == regs[reg3]);
 			break;
+		case OP_MOV:
+			// move values from register to register
+			// (and register to stack when stack implemented)
+			regs[reg2] = regs[reg1];
+			break;
 			
 		// unimplemented opcodes
 		case OP_CALL:
@@ -246,7 +256,7 @@ void eval()
 }
 
 // display all registers as 4-digit hexadecimal words
-void showRegs()
+void showRegs(void)
 {
 	int i;
 	printf("regs = ");
@@ -257,7 +267,7 @@ void showRegs()
 	printf( "\n" );
 }
 
-void run()
+void run(void)
 {
 	printf("Program length: %lu instructions\n", sizeof(program) / sizeof(*program));
 	printf("Program size: %lu bytes\n", sizeof(program));
@@ -268,12 +278,12 @@ void run()
 		decode(instr);
 		eval();
 		// Slow down our program so we can debug easier
-		sleep(1);
+// 		sleep(1);
 	}
 	showRegs();
 }
 
-void dumpProg()
+void dumpProg(void)
 {
 	for (unsigned i = 0; i < (sizeof(program) / sizeof(*program)); ++i)
 		printf("instr: 0x%X\n", program[i]);
@@ -281,6 +291,7 @@ void dumpProg()
 
 int main(int argc, const char *argv[])
 {
+	// Handle initial arguments
 	printf("Args length: %d\n", argc);
 	for (int i = 0; i < argc; ++i)
 		printf("argv[%d]: %s\n", i, argv[i]);
@@ -294,6 +305,8 @@ int main(int argc, const char *argv[])
 		}
 	}
 	
+	// Run application
 	run();
+	// return success
 	return 0;
 }
