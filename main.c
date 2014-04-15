@@ -132,19 +132,11 @@ int imm      = 0;
 // decode a word
 void decode(int instr)
 {
-#ifdef OLD
-	instrNum = (instr & 0xF0000) >> 16;
-	reg1     = (instr & 0xF000 ) >> 12;
-	reg2     = (instr & 0xF00  ) >>  8;
-	reg3     = (instr & 0xF0   ) >>  4;
-	imm      = (instr & 0xFF   );
-#else
 	instrNum = (instr >> 16) & 0xFF;
 	reg1     = (instr >> 12) & 0xF ;
 	reg2     = (instr >>  8) & 0xF ;
 	reg3     = (instr >>  4) & 0xF ;
 	imm      = (instr & 0xFF);
-#endif
 }
 
 // the VM runs until this flag becomes 0
