@@ -210,6 +210,7 @@ void eval(void)
 		case OP_AND:
 			// bitwise and registers
 			regs[reg1] = (regs[reg2] & regs[reg3]);
+			break;
 		case OP_SHL:
 			// bitshift left
 			regs[reg1] = regs[reg2] << regs[reg3];
