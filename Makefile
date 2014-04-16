@@ -1,6 +1,6 @@
 COMMONFLAGS=-Wall -pedantic -I. -g
 # doing -D_BSD_SOURCE gets rid of a warning about strdup when using C11
-CFLAGS=-std=c11 -O0 -D_BSD_SOURCE -D_FORTIFY_SOURCE=0 $(COMMONFLAGS)
+CFLAGS=-std=c11 -D_BSD_SOURCE $(COMMONFLAGS)
 CXXFLAGS=-std=c++11 $(COMMONFLAGS)
 CC=clang
 CXX=clang++

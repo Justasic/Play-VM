@@ -8,6 +8,9 @@
 // 4 registers for us to use -- unfortunately,
 // we cannot load all 4 registers into a single 32-bit word (it would requre 34 bits to do so)
 // Expanding these beyond 4 will require a rewrite of how the format works.
+// The 4th register (known as regs[4]) is treated as the stack pointer.
+// This value will be incremented and decremented as per the position in the stack,
+// this will be used for calling functions and stuff
 #define NUM_REGS 4
 unsigned regs[NUM_REGS];
 
@@ -33,19 +36,18 @@ enum
 	OP_MOV    = 0x10, // move value from one register to another
 	
 	// Not implemented -- requres stack
-	OP_CALL   = 0x1A, // Call a function
-	OP_RET    = 0x1B, // return from a function call
-	OP_PUSH   = 0x1C, // push value from register to stack
-	OP_POP    = 0x1D, // pop value from stack to register
-	OP_JMP    = 0x1E, // jump always to location
-	OP_JNZ    = 0x1F, // jump if not zero to location
-	OP_JZ     = 0x20, // jump if zero to location
+	OP_CALL   = 0x11, // Call a function
+	OP_RET    = 0x12, // return from a function call
+	OP_PUSH   = 0x13, // push value from register to stack
+	OP_POP    = 0x14, // pop value from stack to register
+	OP_JMP    = 0x15, // jump always to location
+	OP_JNZ    = 0x16, // jump if not zero to location
+	OP_JZ     = 0x17, // jump if zero to location
 	
 	
 	// Extra opcodes
 	OP_PRNT   = 0x18, // Temporary print opcodes.
 	OP_DMP    = 0x19,
-	OP_HUGE   = 0x100 // Test a really large opcode
 };
 
 // Op code tables
@@ -86,8 +88,6 @@ static const opcodes_t OpTable[] = {
 	
 	{OP_PRNT,   "PRNT"},
 	{OP_DMP,    "DMP"},
-	
-	{OP_HUGE,   "HUGE!"}
 };
 
 // Our program
@@ -103,10 +103,24 @@ static const unsigned program[] =
 	INSTR(OP_DMP,   0, 0, 0, 0),   // dmp             -- Dump registers to terminal
 	INSTR(OP_MOV,   2, 0, 0, 0),   // mov r2, r0
 	INSTR(OP_MOV,   2, 1, 0, 0),   // mov r2, r1
-	INSTR(OP_MOV,   2, 3, 0, 0),   // mov r2, r3
+        INSTR(OP_LOADI, 0, 0, 0, 18),  // loadi r0, 16
+        INSTR(OP_CALL,  0, 0, 0, 0),   // call r0
+        INSTR(OP_LOADI, 0, 0, 0, 12),  // loadi r0, 12    -- load number 12 to register r0
+        //INSTR(OP_DMP,   0, 0, 0, 0),   // dmp             -- Dump that shit.
+        INSTR(OP_JMP,   0, 0, 0, 0),   // jmp r0          -- Jump to above instruction
 	INSTR(OP_HALT,  0, 0, 0, 0),    // halt
-	INSTR(OP_HUGE,  0, 0, 0, 0)
+
+
+        INSTR(OP_UNUSED,0, 0, 0, 0),   // Test unused, should never trigger
+        INSTR(OP_LOADI, 0, 0, 0, 321), // load random value
+        INSTR(OP_LOADI, 1, 0, 0, 123), // another rand value
+        INSTR(OP_ADD,   2, 0, 1, 0),   // add r2 = r0, r1
+        INSTR(OP_RET,   0, 0, 0, 0),    // ret -- return to previous call location
+        INSTR(OP_HALT,  0, 0, 0, 0)
 };
+
+// Our program stack
+int opstack[sizeof(program) * sizeof(*program)];
 
 // program counter
 int pc = 0;
@@ -147,7 +161,9 @@ void eval(void)
 {
 	// In case we hit an unknown instruction.
 	if (instrNum <= (sizeof(OpTable) / sizeof(*OpTable)))
-		printf("%s(%d) {r0: %d, r1: %d, r2: %d} imm %d\n", OpTable[instrNum].opcodename, instrNum, reg1, reg2, reg3, imm);
+		printf("%s(%d) {r0: %d, r1: %d, r2: %d} imm %d\n",
+                OpTable[instrNum].opcodename,
+                instrNum, reg1, reg2, reg3, imm);
 	
 	switch(instrNum)
 	{
@@ -219,13 +235,34 @@ void eval(void)
 			// (and register to stack when stack implemented)
 			regs[reg2] = regs[reg1];
 			break;
-			
-		// unimplemented opcodes
 		case OP_CALL:
+                        // Call a section of code.
+                        // This is basically a push + jmp call in one.
+                        opstack[regs[3]] = pc+1; // Push program position + 1 to stack -- the +1 is to move past the call instruction so we don't do an infinite loop
+                        regs[3]++;             // Increment stack pointer
+                        pc = regs[reg1];       // set program position
+                        //printf("Saved location: %d -- jumping to location %d\n", opstack[regs[3]-1], pc);
+                        break;                 // return, next iteration by CPU will be at the new position
 		case OP_RET:
+                        // This the opposite of call.
+                        regs[3]--;             // Decrement stack pointer
+                        pc = opstack[regs[3]]; // Get the previous run position from stack
+                        //printf("Returning back to %d\n", pc);
+                        break;                 // return, next iteration by CPU will be at new position
 		case OP_PUSH:
+                        // Push value onto stack
+                        // we'll treat register 4 as the stack pointer.
+                        opstack[regs[3]] = regs[reg1];
+                        regs[3]++;
+                        break;
 		case OP_POP:
-		case OP_JMP:
+                        // pop value from stack
+                        regs[reg1] = opstack[regs[3]];
+                        regs[3]--;
+                        break;
+                case OP_JMP:
+                        pc = regs[reg1];
+                        break;
 		case OP_JNZ:
 		case OP_JZ:
 			printf("Ignoring unimplemented opcode %d\n", instrNum);
@@ -263,6 +300,7 @@ void run(void)
 {
 	printf("Program length: %lu instructions\n", sizeof(program) / sizeof(*program));
 	printf("Program size: %lu bytes\n", sizeof(program));
+    memset(opstack, 0, sizeof(opstack));
 	while(running)
 	{
 		showRegs();
@@ -271,6 +309,7 @@ void run(void)
 		eval();
 		// Slow down our program so we can debug easier
 // 		sleep(1);
+        usleep(8400);
 	}
 	showRegs();
 }
