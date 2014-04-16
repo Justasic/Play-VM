@@ -11,6 +11,11 @@
 // The 4th register (known as regs[4]) is treated as the stack pointer.
 // This value will be incremented and decremented as per the position in the stack,
 // this will be used for calling functions and stuff
+//
+// r0 - General register (used for returns usually)
+// r1 - General register
+// r2 - General register
+// r3 - Stack Pointer register
 #define NUM_REGS 4
 unsigned regs[NUM_REGS];
 
@@ -101,22 +106,22 @@ static const unsigned program[] =
 	INSTR(OP_PRNT,  2, 0, 0, 0),   // prnt r2         -- Print the r2 register to terminal
 	INSTR(OP_SUB,   2, 1, 0, 0),   // sub r2 = r0, r1 -- Subtract r0 from r1, place value in r2
 	INSTR(OP_DMP,   0, 0, 0, 0),   // dmp             -- Dump registers to terminal
-	INSTR(OP_MOV,   2, 0, 0, 0),   // mov r2, r0
-	INSTR(OP_MOV,   2, 1, 0, 0),   // mov r2, r1
-        INSTR(OP_LOADI, 0, 0, 0, 18),  // loadi r0, 16
-        INSTR(OP_CALL,  0, 0, 0, 0),   // call r0
-        INSTR(OP_LOADI, 0, 0, 0, 12),  // loadi r0, 12    -- load number 12 to register r0
-        //INSTR(OP_DMP,   0, 0, 0, 0),   // dmp             -- Dump that shit.
-        INSTR(OP_JMP,   0, 0, 0, 0),   // jmp r0          -- Jump to above instruction
+	INSTR(OP_MOV,   2, 0, 0, 0),   // mov r2, r0      -- Move value from r2 to r0
+	INSTR(OP_MOV,   2, 1, 0, 0),   // mov r2, r1      -- Move value from r2 to r0
+	INSTR(OP_LOADI, 0, 0, 0, 18),  // loadi r0, 18    -- Load 18 aka. offset to program jump point
+	INSTR(OP_CALL,  0, 0, 0, 0),   // call r0         -- Call that offset position
+	INSTR(OP_LOADI, 0, 0, 0, 12),  // loadi r0, 12    -- load number 12 to register r0
+	//INSTR(OP_DMP,   0, 0, 0, 0),   // dmp             -- Dump that shit.
+	INSTR(OP_JMP,   0, 0, 0, 0),   // jmp r0          -- Jump to value of r0
 	INSTR(OP_HALT,  0, 0, 0, 0),    // halt
 
 
-        INSTR(OP_UNUSED,0, 0, 0, 0),   // Test unused, should never trigger
-        INSTR(OP_LOADI, 0, 0, 0, 321), // load random value
-        INSTR(OP_LOADI, 1, 0, 0, 123), // another rand value
-        INSTR(OP_ADD,   2, 0, 1, 0),   // add r2 = r0, r1
-        INSTR(OP_RET,   0, 0, 0, 0),    // ret -- return to previous call location
-        INSTR(OP_HALT,  0, 0, 0, 0)
+	INSTR(OP_UNUSED,0, 0, 0, 0),   // Test unused, should never trigger
+	INSTR(OP_LOADI, 0, 0, 0, 321), // load random value
+	INSTR(OP_LOADI, 1, 0, 0, 123), // another rand value
+	INSTR(OP_ADD,   2, 0, 1, 0),   // add r2 = r0, r1
+	INSTR(OP_RET,   0, 0, 0, 0),    // ret -- return to previous call location
+	INSTR(OP_HALT,  0, 0, 0, 0)
 };
 
 // Our program stack
@@ -237,33 +242,33 @@ void eval(void)
 			regs[reg2] = regs[reg1];
 			break;
 		case OP_CALL:
-                        // Call a section of code.
-                        // This is basically a push + jmp call in one.
-                        opstack[regs[3]] = pc+1; // Push program position + 1 to stack -- the +1 is to move past the call instruction so we don't do an infinite loop
-                        regs[3]++;             // Increment stack pointer
-                        pc = regs[reg1];       // set program position
-                        //printf("Saved location: %d -- jumping to location %d\n", opstack[regs[3]-1], pc);
-                        break;                 // return, next iteration by CPU will be at the new position
+			// Call a section of code.
+			// This is basically a push + jmp call in one.
+			opstack[regs[3]] = pc+1; // Push program position + 1 to stack -- the +1 is to move past the call instruction so we don't do an infinite loop
+			regs[3]++;             // Increment stack pointer
+			pc = regs[reg1];       // set program position
+			//printf("Saved location: %d -- jumping to location %d\n", opstack[regs[3]-1], pc);
+			break;                 // return, next iteration by CPU will be at the new position
 		case OP_RET:
-                        // This the opposite of call.
-                        regs[3]--;             // Decrement stack pointer
-                        pc = opstack[regs[3]]; // Get the previous run position from stack
-                        //printf("Returning back to %d\n", pc);
-                        break;                 // return, next iteration by CPU will be at new position
+			// This the opposite of call.
+			regs[3]--;             // Decrement stack pointer
+			pc = opstack[regs[3]]; // Get the previous run position from stack
+			//printf("Returning back to %d\n", pc);
+			break;                 // return, next iteration by CPU will be at new position
 		case OP_PUSH:
-                        // Push value onto stack
-                        // we'll treat register 4 as the stack pointer.
-                        opstack[regs[3]] = regs[reg1];
-                        regs[3]++;
-                        break;
+			// Push value onto stack
+			// we'll treat register 4 as the stack pointer.
+			opstack[regs[3]] = regs[reg1];
+			regs[3]++;
+			break;
 		case OP_POP:
-                        // pop value from stack
-                        regs[reg1] = opstack[regs[3]];
-                        regs[3]--;
-                        break;
+			// pop value from stack
+			regs[reg1] = opstack[regs[3]];
+			regs[3]--;
+			break;
                 case OP_JMP:
-                        pc = regs[reg1];
-                        break;
+			pc = regs[reg1];
+			break;
 		case OP_JNZ:
 		case OP_JZ:
 			printf("Ignoring unimplemented opcode %d\n", instrNum);
@@ -301,7 +306,7 @@ void run(void)
 {
 	printf("Program length: %lu instructions\n", sizeof(program) / sizeof(*program));
 	printf("Program size: %lu bytes\n", sizeof(program));
-    memset(opstack, 0, sizeof(opstack));
+	memset(opstack, 0, sizeof(opstack));
 	while(running)
 	{
 		showRegs();
@@ -310,7 +315,7 @@ void run(void)
 		eval();
 		// Slow down our program so we can debug easier
 // 		sleep(1);
-        usleep(8400);
+		usleep(8400);
 	}
 	showRegs();
 }
