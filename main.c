@@ -16,7 +16,8 @@
 // r1 - General register
 // r2 - General register
 // r3 - Stack Pointer register
-#define NUM_REGS 4
+// r4 - Flags register
+#define NUM_REGS 5
 unsigned regs[NUM_REGS];
 
 // OP codes
@@ -48,11 +49,15 @@ enum
 	OP_JMP    = 0x15, // jump always to location
 	OP_JNZ    = 0x16, // jump if not zero to location
 	OP_JZ     = 0x17, // jump if zero to location
-	
+	OP_JEQ    = 0x18, // jump if equal
+	OP_JNE    = 0x19, // jump if not equal
+	OP_JGT    = 0x1A, // jump if greater than
+	OP_JLT    = 0x1B, // jump if less than
+	OP_CALLF  = 0x1C, // Call a function from imm
 	
 	// Extra opcodes
-	OP_PRNT   = 0x18, // Temporary print opcodes.
-	OP_DMP    = 0x19,
+	OP_PRNT   = 0x25, // Temporary print opcodes.
+	OP_DMP    = 0x26,
 };
 
 // Op code tables
@@ -89,6 +94,7 @@ static const opcodes_t OpTable[] = {
 	{OP_JMP,    "JMP" },
 	{OP_JNZ,    "JNZ" },
 	{OP_JZ,     "JZ"  },
+	{OP_CALLF,  "CALLF"},
 	
 	
 	{OP_PRNT,   "PRNT"},
@@ -98,6 +104,7 @@ static const opcodes_t OpTable[] = {
 // Our program
 static const unsigned program[] =
 {
+	//     instr   r0  r1 r2  imm
 	INSTR(OP_LOADI, 0, 0, 0, 100), // loadi r0, 100   -- load the constant value 100 into r0 register
 	INSTR(OP_LOADI, 1, 0, 0, 200), // loadi r1, 200   -- load the constant value 200 into r1 register
 	INSTR(OP_ADD,   2, 0, 1, 0),   // add r2 = r0, r1 -- add r0 and r1, place value in r2
@@ -249,6 +256,12 @@ void eval(void)
 			pc = regs[reg1];       // set program position
 			//printf("Saved location: %d -- jumping to location %d\n", opstack[regs[3]-1], pc);
 			break;                 // return, next iteration by CPU will be at the new position
+		case OP_CALLF:
+			// Same as Call but using imm instead
+			opstack[regs[3]] = pc+1;
+			regs[3]++;
+			pc = imm;
+			break;
 		case OP_RET:
 			// This the opposite of call.
 			regs[3]--;             // Decrement stack pointer
