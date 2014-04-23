@@ -31,6 +31,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdint.h>
+#include <limits.h>
 #ifndef __STDC_NO_THREADS__
 # include <threads.h>
 #else
@@ -50,6 +51,10 @@
 // Our max stack size
 #define MAX_STACK (1 << 16)
 
+// Some flag functions
+#define SETFLAGS(var, flags)   (var |= (flags))
+#define UNSETFLAGS(var, flags) (var &= ~(flags))
+
 // Our registers struct to hold the opcode registers.
 typedef struct registers_s
 {
@@ -58,14 +63,18 @@ typedef struct registers_s
 	int32_t r2; // General register
 	int32_t r3; // Stack pointer
 	int32_t r4; // Flags
-	int32_t imm;
+	int32_t imm; // immediate value
 } registers_t;
 
 // The decoded instruction.
 typedef struct instruction_s
 {
+	// The opcode that was decoded
 	uint32_t opcode;
 	//unsigned operand; // Technically not needed since registers_t decodes this.
+	// The type of the operands (whether it's a register or an immediate constant value)
+	uint8_t type;
+	// operands (decoded)
 	registers_t *reg;
 } instruction_t;
 
@@ -140,15 +149,19 @@ enum
         OP_JMP    = 0x015, // Jump always
         OP_JNZ    = 0x016, // Jump if not zero
         OP_JZ     = 0x017, // Jump if zero
-        OP_JEQ    = 0x017, // Jump if equal
-        OP_JNE    = 0x018, // Jump if not equal
-        OP_JGT    = 0x019, // Jump if greater than
-        OP_JLT    = 0x01A, // Jump if less than
+        OP_JS     = 0x018, // Jump if sign
+	OP_JNS    = 0x019, // Jump if not sign
+        OP_JGT    = 0x01A, // Jump if greater than
+        OP_JLT    = 0x01B, // Jump if less than
+	OP_JPE    = 0x01C, // Jump if parity even
+	OP_JPO    = 0x01D, // Jump if parity odd
 
         // Program control
-        OP_HALT   = 0x01B, // Halt the application
-        OP_INT    = 0x01C, // Interrupt -- used for syscalls
-	OP_LOADI  = 0x01D, // Load an imm value
+        OP_HALT   = 0x01E, // Halt the application
+        OP_INT    = 0x01F, // Interrupt -- used for syscalls
+	OP_LOADI  = 0x020, // Load an imm value
+	OP_PUSHF  = 0x021, // Push flags to stack
+	OP_POPF   = 0x022, // Pop flags from stack
 
         // Debug
         OP_DMP    = 0xA00, // Dump all registers to terminal
@@ -158,10 +171,20 @@ enum
 // All flags
 enum
 {
-	FLAG_CARRY    = 0x00000002,
-	FLAG_ZERO     = 0x00000004,
-	FLAG_EQUAL    = 0x00000008,
-	FLAG_OVERFLOW = 0x00000020
+	FLAG_CARRY    = (1 << 0), // If an arithmatic carry operation occured
+	FLAG_ZERO     = (1 << 1), // If the operation resulted in a zero result
+	FLAG_OVERFLOW = (1 << 2), // If the operation overflowed the integer
+	FLAG_SIGN     = (1 << 3), // If the operation used a signed integer that is negative
+	FLAG_PARITY   = (1 << 4)  // see http://en.wikipedia.org/wiki/Parity_flag
+};
+
+// used to tell whether the opcode is to use
+// the constant value (imm) or the registers.
+enum 
+{
+	OP_FLAG_UNKNOWN,
+	OP_FLAG_IMMEDIATE,
+	OP_FLAG_REGISTER
 };
 
 // This just allocates and prepares our vm_t struct object
@@ -191,14 +214,16 @@ void DeallocateInstruction(instruction_t *in)
 
 // This decodes the operands for the instruction
 // We pack the operands into a int32_t-sized char
-registers_t *DecodeOperand(int32_t operand)
+void DecodeOperand(instruction_t *ins, int32_t operand)
 {
 	registers_t *reg = malloc(sizeof(registers_t));
-	reg->r0  = (operand >> 12) & 0xF ;
-	reg->r1  = (operand >>  8) & 0xF ;
-	reg->r2  = (operand >>  4) & 0xF ;
-	reg->imm = (operand & 0xFF)      ;
-	return reg;
+	memset(reg, 0, sizeof(registers_t));
+	ins->type = (operand >> 16) & 0xF;
+	reg->r0   = (operand >> 12) & 0xF;
+	reg->r1   = (operand >>  8) & 0xF;
+	reg->r2   = (operand >>  4) & 0xF;
+	reg->imm  = (operand & 0xFF)     ;
+	ins->reg  = reg;
 }
 
 // Decode an instruction from our program loaded in memory and 
@@ -206,9 +231,51 @@ registers_t *DecodeOperand(int32_t operand)
 instruction_t *DecodeInstruction(vm_t *vm)
 {
 	instruction_t *ins = malloc(sizeof(instruction_t));
+	memset(ins, 0, sizeof(instruction_t));
 	ins->opcode = vm->program[vm->ip++];
-	ins->reg = DecodeOperand(vm->program[vm->ip++]);
+	DecodeOperand(ins, vm->program[vm->ip++]);
 	return ins;
+}
+
+static inline int has_even_parity(uint32_t x)
+{
+	uint32_t count = 0;
+	
+	for(uint32_t i = 0; i < (sizeof(uint32_t) * CHAR_BIT); i++)
+		if(x & (1 << i))
+			count++;
+	
+	return !(count % 2);
+}
+
+// Check and make sure the last operation doesn't need
+// any new flags to be set.
+void CheckFlags(vm_t *vm, int32_t value)
+{
+	if (value == 0)
+		SETFLAGS(vm->regs[4], FLAG_ZERO);
+	else
+		UNSETFLAGS(vm->regs[4], FLAG_ZERO);
+	
+	// Thanks stackoverflow! Anyway, this checks if the integer is strictly positive
+	// see http://stackoverflow.com/a/3731575 for more.
+	uint32_t u = (uint32_t)value;
+	int32_t strictly_positive = (-u & ~u) >> ((sizeof(int) * CHAR_BIT) - 1);
+	// Set the sign flag depending on the signedness of the integer.
+	if (strictly_positive)
+		UNSETFLAGS(vm->regs[4], FLAG_SIGN);
+	else
+		SETFLAGS(vm->regs[4], FLAG_SIGN);
+	
+	// Set parity flag
+	if (has_even_parity(value))
+		SETFLAGS(vm->regs[4], FLAG_PARITY);
+	else
+		UNSETFLAGS(vm->regs[4], FLAG_PARITY);
+	
+	// TODO:
+	//     implement FLAG_CARRY
+	//     implement FLAG_OVERFLOW
 }
 
 void interpret(vm_t *vm)
@@ -238,97 +305,188 @@ void interpret(vm_t *vm)
 			break;
 		case OP_ADD:
 			// Add values together
-			// 			printf("add r%d r%d r%d\n", ins->reg->r0, ins->reg->r1, ins->reg->r2);
-			vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1] + vm->regs[ins->reg->r2];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] += ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] += vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_SUB:
 			// Subtract values
-			vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1] - vm->regs[ins->reg->r2];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] -= ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] -= vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_DIV:
 			// Divide values
-			vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1] / vm->regs[ins->reg->r2];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] /= ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] /= vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_XOR:
 			// xor 2 registers
-			vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1] ^ vm->regs[ins->reg->r2];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] ^= ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] ^= vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_NOT:
 			// bitwise not register
-			vm->regs[ins->reg->r0] = ~vm->regs[ins->reg->r1];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] = ~ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] = ~vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_OR:
 			// bitwise or registers
-			vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1] | vm->regs[ins->reg->r2];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] |= ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] |= vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_AND:
 			// bitwise and registers
-			vm->regs[ins->reg->r0] = (vm->regs[ins->reg->r1] & vm->regs[ins->reg->r2]);
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] &= ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] &= vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_SHL:
 			// bitshift left
-			vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1] << vm->regs[ins->reg->r2];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] <<= ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] <<= vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_SHR:
 			// bitshift right
-			vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1] >> vm->regs[ins->reg->r2];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] >>= ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] >>= vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_INC:
 			// increment register
 			vm->regs[ins->reg->r0]++;
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_DEC:
 			// decrement register
 			vm->regs[ins->reg->r0]--;
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_CMP:
 			// compare 2 registers together
-			vm->regs[ins->reg->r0] = (vm->regs[ins->reg->r1] == vm->regs[ins->reg->r2]);
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				CheckFlags(vm, (vm->regs[ins->reg->r0] == ins->reg->imm));
+			else if(ins->type == OP_FLAG_REGISTER)
+				CheckFlags(vm, (vm->regs[ins->reg->r0] == vm->regs[ins->reg->r1]));
 			break;
 		case OP_MOV:
 			// move values from register to register
 			// (and register to stack when stack implemented)
-			vm->regs[ins->reg->r1] = vm->regs[ins->reg->r0];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->regs[ins->reg->r0] = ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->regs[ins->reg->r0] = vm->regs[ins->reg->r1];
+			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_CALL:
 			// Call a section of code.
 			// This is basically a push + jmp call in one.
-			vm->opstack[vm->regs[3]] = vm->ip+1; // Push program position + 1 to stack -- the +1 is to move past the call instruction so we don't do an infinite loop
-			vm->regs[3]++;             // Increment stack pointer
-			vm->ip = vm->regs[ins->reg->r0];       // set program position
-			//printf("Saved location: %d -- jumping to location %d\n", vm->opstack[vm->regs[3]-1], vm->ip);
-			break;                 // return, next iteration by CPU will be at the new position
-// 		case OP_CALLF:
-// 			// Same as Call but using ins->reg->imm instead
-// 			vm->opstack[vm->regs[3]] = vm->ip+1;
-// 			vm->regs[3]++;
-// 			vm->ip = ins->reg->imm;
-// 			break;
+			
+			// put the instruction pointer + 1 (the +1 is so when we
+			// return, we're not gonna jump into the same call statement)
+			// onto the stack then increment the stack pointer.
+			vm->opstack[vm->regs[3]++] = vm->ip+1;
+			
+			// Jump in the switch statement to OP_JMP
+			goto jmpopcode;
 		case OP_RET:
 			// This the opposite of call.
-			vm->regs[3]--;             // Decrement stack pointer
-			vm->ip = vm->opstack[vm->regs[3]]; // Get the previous run position from stack
-			//printf("Returning back to %d\n", vm->ip);
-			break;                 // return, next iteration by CPU will be at new position
+			// Get the previous run position from stack and decrement the stack pointer.
+			vm->ip = vm->opstack[vm->regs[3]--];
+			break; // return, next iteration by CPU will be at new position
 		case OP_PUSH:
 			// Push value onto stack
 			// we'll treat register 4 as the stack pointer.
-			vm->opstack[vm->regs[3]] = vm->regs[ins->reg->r0];
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->opstack[vm->regs[3]] = ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->opstack[vm->regs[3]] = vm->regs[ins->reg->r0];
+
 			vm->regs[3]++;
+			break;
+		case OP_PUSHF:
+			// Push the flags register to the stack
+			vm->opstack[vm->regs[3]++] = vm->regs[4];
 			break;
 		case OP_POP:
 			// pop value from stack
-			vm->regs[ins->reg->r0] = vm->opstack[vm->regs[3]];
-			vm->regs[3]--;
+			vm->regs[ins->reg->r0] = vm->opstack[vm->regs[3]--];
 			break;
 		case OP_JMP:
-			vm->ip = vm->regs[ins->reg->r0];
+jmpopcode:		// Jump always -- other conditional jumps go here for cleanness
+			if (ins->type == OP_FLAG_IMMEDIATE)
+				vm->ip = ins->reg->imm;
+			else if(ins->type == OP_FLAG_REGISTER)
+				vm->ip = vm->regs[ins->reg->r0];
 			break;
 		case OP_JNZ:
+			// Jump if not zero
+			if (!(vm->regs[4] & FLAG_ZERO))
+				goto jmpopcode;
+			break;
 		case OP_JZ:
+			// Jump if zero
+			if (vm->regs[4] & FLAG_ZERO)
+				goto jmpopcode;
+			break;
+		case OP_JS:
+			// Jump if sign flag is set
+			if (vm->regs[4] & FLAG_SIGN)
+				goto jmpopcode;
+			break;
+		case OP_JNS:
+			// jump if sign flag is not set
+			if (!(vm->regs[4] & FLAG_SIGN))
+				goto jmpopcode;
+			break;
+		case OP_JGT:
+			// jump if value is greater than zero
+			if ((vm->regs[4] & FLAG_ZERO) || (!(vm->regs[4] & FLAG_SIGN) && !(vm->regs[4] & FLAG_OVERFLOW)))
+				goto jmpopcode;
+			break;
+		case OP_JLT:
+			// Jump if value is less than zero
+			if ((vm->regs[4] & FLAG_SIGN) || (vm->regs[4] & FLAG_OVERFLOW))
+				goto jmpopcode;
+			break;
+		case OP_JPE:
+			// Jump if parity is even
+			if (vm->regs[4] & FLAG_PARITY)
+				goto jmpopcode;
+			break;
+		case OP_JPO:
+			// Jump if parity is odd
+			if (!(vm->regs[4] & FLAG_PARITY))
+				goto jmpopcode;
+			break;
+		case OP_LEA:
+		case OP_INT:
 			printf("Ignoring unimplemented opcode %d\n", ins->opcode);
 			break;
-			
+
 			// Extended opcode which will later be removed.
 		case OP_PRNT:
 			printf("r%d: %d\n", ins->reg->r0, vm->regs[ins->reg->r0]);
