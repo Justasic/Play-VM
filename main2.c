@@ -547,6 +547,10 @@ void DecodeThread(void *ptr)
 	// Unlock our mutex.
 	mtx_unlock(&listmutex);
 	
+	// we're the last in the list, delete the mutex.
+	if (!first)
+		mtx_destroy(&listmutex);
+	
 	// Deallocate ourselves
 	DeallocateVM(me);
 }
