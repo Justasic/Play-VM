@@ -78,6 +78,14 @@ typedef struct instruction_s
 	registers_t *reg;
 } instruction_t;
 
+// This is just a struct to use in the struct below
+// it corrects the instruction pointer
+typedef struct program_s
+{
+	int32_t opcode;
+	int32_t operands;
+} program_t;
+
 // vm struct to allow for multiple programs
 // to run at the same time on the same inter-
 // preter. Multiplexing!
@@ -98,7 +106,7 @@ typedef struct vm_s
         size_t programLength;
 
         // The program, loaded into a buffer
-	int32_t *program;
+	program_t **program;
 	
 	// Check whether the program is running
 	unsigned char running;
@@ -201,6 +209,8 @@ vm_t *AllocateVM(void)
 void DeallocateVM(vm_t *vm)
 {
         free(vm->opstack);
+	for (size_t i = 0; i < vm->programLength; ++i)
+		free(vm->program[i]);
         free(vm->program);
         free(vm);
 }
@@ -232,8 +242,8 @@ instruction_t *DecodeInstruction(vm_t *vm)
 {
 	instruction_t *ins = malloc(sizeof(instruction_t));
 	memset(ins, 0, sizeof(instruction_t));
-	ins->opcode = vm->program[vm->ip++];
-	DecodeOperand(ins, vm->program[vm->ip++]);
+	ins->opcode = vm->program[vm->ip++]->opcode;
+	DecodeOperand(ins, vm->program[vm->ip++]->operands);
 	return ins;
 }
 
@@ -555,6 +565,26 @@ void DecodeThread(void *ptr)
 	DeallocateVM(me);
 }
 
+// Decode and compile the data into the struct above
+void CompileVM(vm_t *vm, char *data, size_t len)
+{
+	// This loop is a bit lopsided because we're going from a char
+	// (which is 1 byte) to two int32_t's (int32_t * 2 = 8 bytes).
+	// So we may crash in this loop. Not sure how to handle this.
+	size_t newlen = 0;
+	while(newlen < len)
+	{
+		program_t *pr = malloc(sizeof(program_t));
+		memcpy(pr, data, sizeof(program_t));
+		newlen += sizeof(program_t);
+		data += sizeof(program_t);
+		vm->programLength++;
+		vm->program = realloc(vm->program, vm->programLength * sizeof(program_t*));
+		vm->program[vm->programLength] = pr;
+	}
+}
+
+// Obvious entry point.
 int main(int argc, char **argv)
 {
         for (int i = 0; i < argc; ++i)
@@ -602,27 +632,33 @@ int main(int argc, char **argv)
 		
 		// Get program length
 		fseek(f, 0, SEEK_END);
-		vm->programLength = ftell(f);
+		size_t plen = ftell(f);
 		rewind(f);
 		
 		// Make sure our program is empty
-		vm->program = malloc(vm->programLength+1);
+		char *data = malloc(plen+1);
 		// Make sure the whole buffer is null before we start
-		memset(vm->program, 0, vm->programLength+1);
+		memset(data, 0, plen+1);
 		
 		// Read each byte into our buffer
-		size_t ret = fread(vm->program, 1, vm->programLength, f);
+		size_t ret = fread(data, 1, plen, f);
 		
 		// Close our file descriptor
 		fclose(f);
 		
 		// Make sure the program has a valid length and isn't null.
-		if (ret != vm->programLength || !ret)
+		if (ret != plen || !ret)
 		{
 			fprintf(stderr, "Failed to read program: invalid length!\n");
 			DeallocateVM(vm);
 			continue;
 		}
+		
+		// Compile the VM
+		CompileVM(vm, data, plen);
+		
+		// We don't need this anymore
+		free(data);
 		
 		// Check if this is the first element in the linked list.
 		if (!first)
