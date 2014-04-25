@@ -15,6 +15,11 @@
 #ifndef C11THREADS_H_
 #define C11THREADS_H_
 
+// Needed for the bullshit license issues - Justasic
+#define _POSIX_C_SOURCE 200809L 
+#define __USE_XOPEN2K8 1
+#define __USE_XOPEN2K 1
+
 #include <time.h>
 #include <errno.h>
 #include <pthread.h>

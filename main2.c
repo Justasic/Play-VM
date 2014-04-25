@@ -25,11 +25,18 @@
  */
 
 // Compiled with:
-// clang -Wall -Wextra -pedantic -std=c11 -Wshadow -I. -g -D_GNU_SOURCE main2.c -o main2 -pthreads
+// clang -Wall -Wextra -pedantic -std=c11 -Wshadow -I. -g main2.c -o main2 -pthreads
+
+// Needed for the bullshit license issues - Justasic
+#define _POSIX_C_SOURCE 200809L 
+#define __USE_XOPEN2K8 1
+#define __USE_XOPEN2K 1
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <strings.h> // fuck this header
 #include <stdint.h>
 #include <limits.h>
 #ifndef __STDC_NO_THREADS__
@@ -54,6 +61,9 @@
 // Some flag functions
 #define SETFLAGS(var, flags)   (var |= (flags))
 #define UNSETFLAGS(var, flags) (var &= ~(flags))
+
+// Other macros
+#define MIN(X,Y) ((X) < (Y) ? (X) : (Y))
 
 // Our registers struct to hold the opcode registers.
 typedef struct registers_s
@@ -240,10 +250,21 @@ void DecodeOperand(instruction_t *ins, int32_t operand)
 // translate that into a struct.
 instruction_t *DecodeInstruction(vm_t *vm)
 {
+	if (++vm->ip > vm->programLength)
+	{
+		fprintf(stderr, "Error: %s tried to run past length of program. Terminating.\n", vm->name);
+		vm->running = 0;
+		return NULL;
+	}
+	
 	instruction_t *ins = malloc(sizeof(instruction_t));
 	memset(ins, 0, sizeof(instruction_t));
-	ins->opcode = vm->program[vm->ip++]->opcode;
-	DecodeOperand(ins, vm->program[vm->ip++]->operands);
+	
+// 	printf("instruction pointer: %zu\n", vm->ip);
+	ins->opcode = vm->program[vm->ip]->opcode;
+ 	printf("Running instruction \"0x%.4X\" at ip: %zu\n", ins->opcode, vm->ip);
+	DecodeOperand(ins, vm->program[vm->ip]->operands);
+	
 	return ins;
 }
 
@@ -295,6 +316,11 @@ void interpret(vm_t *vm)
         // the operands for that instruction. This allows
         // for more registers to be used.
 	instruction_t *ins = DecodeInstruction(vm);
+	
+	// In case we get an invalid length or something.
+	if (!ins)
+		return;
+	
         switch(ins->opcode)
         {
 		case OP_UNUSED:
@@ -557,12 +583,11 @@ void DecodeThread(void *ptr)
 	// Unlock our mutex.
 	mtx_unlock(&listmutex);
 	
-	// we're the last in the list, delete the mutex.
-	if (!first)
-		mtx_destroy(&listmutex);
-	
 	// Deallocate ourselves
 	DeallocateVM(me);
+	
+	// Exit the thread
+	thrd_exit(0);
 }
 
 // Decode and compile the data into the struct above
@@ -571,16 +596,56 @@ void CompileVM(vm_t *vm, char *data, size_t len)
 	// This loop is a bit lopsided because we're going from a char
 	// (which is 1 byte) to two int32_t's (int32_t * 2 = 8 bytes).
 	// So we may crash in this loop. Not sure how to handle this.
+
+	
+	// Make sure our program's opcodes are all valid. If they're not
+	// then the loop below may crash or fail.
+	if (len % sizeof(program_t) != 0)
+	{
+		fprintf(stderr, "WARNING: %s is not a multiple of %zu bytes in length,"
+		                "likely invalid, mis-aligned, or corrupt program!\n",
+			        vm->name, sizeof(program_t));
+	}
+	
+	size_t instructions = len / sizeof(program_t);
+	
+	// Attempt to guess the number of instructions we're gonna be needing to allocate for.
+	vm->program = calloc(instructions, sizeof(program_t*));
+	
+// 	printf("Preparing to compile program. Expecting %zu instructions. vm->program = 0x%p\n", instructions,
+// 	       vm->program);
+	
 	size_t newlen = 0;
 	while(newlen < len)
 	{
+		// Allocate a prorgam instruction
 		program_t *pr = malloc(sizeof(program_t));
-		memcpy(pr, data, sizeof(program_t));
-		newlen += sizeof(program_t);
-		data += sizeof(program_t);
+		
+		// Determine the next best size to use to advance the copy
+		size_t nextlen = MIN(sizeof(program_t), sizeof(program_t) - len - newlen);
+		
+		// copy it into the newly allocated pointer
+		memcpy(pr, data, nextlen);
+		
+		newlen += nextlen;
+		data += nextlen;
 		vm->programLength++;
-		vm->program = realloc(vm->program, vm->programLength * sizeof(program_t*));
-		vm->program[vm->programLength] = pr;
+		
+		if (vm->programLength > instructions)
+		{
+// 			printf("realloc'ing program length: %zu objects, size %zu\n", vm->programLength,
+// 			       vm->programLength * sizeof(program_t*));
+			void *tmpptr = realloc(vm->program, vm->programLength * sizeof(program_t*));
+			if (!tmpptr)
+			{
+				fprintf(stderr, "failed realloc'ing %zu bytes: %s\n", vm->programLength * sizeof(program_t*),
+					strerror(errno));
+				exit(1);
+			}
+			vm->program = tmpptr;
+		}
+		
+		vm->program[vm->programLength-1] = pr;
 	}
 }
 
@@ -602,7 +667,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	
-	for (int i = 0; i < argc; ++i)
+	for (int i = 1; i < argc; ++i)
 	{
 		char *program = argv[i];
 		size_t len = strlen(program);
@@ -612,6 +677,7 @@ int main(int argc, char **argv)
 		if (program[0] == '-' && program[1] == '-')
 			continue;
 		
+		printf("Allocating vm struct for \"%s\"\n", program);
 		vm_t *vm = AllocateVM();
 		
 		// Set our name and shit
@@ -619,6 +685,8 @@ int main(int argc, char **argv)
 		vm->nameLen = len;
 		// We're running
 		vm->running = 1;
+		
+		printf("Attempting to open file \"%s\"\n", program);
 		
 		// Open a file as read-binary
 		FILE *f = fopen(vm->name, "rb");
@@ -630,10 +698,14 @@ int main(int argc, char **argv)
 			continue;
 		}
 		
+		printf("Program successfully opened, reading length and allocating temporary buffer\n");
+		
 		// Get program length
 		fseek(f, 0, SEEK_END);
 		size_t plen = ftell(f);
 		rewind(f);
+		
+		printf("Program length: %zu bytes\n", plen);
 		
 		// Make sure our program is empty
 		char *data = malloc(plen+1);
@@ -646,16 +718,22 @@ int main(int argc, char **argv)
 		// Close our file descriptor
 		fclose(f);
 		
+		printf("Verifying program length, fread returned %zu\n", ret);
+		
 		// Make sure the program has a valid length and isn't null.
-		if (ret != plen || !ret)
+		if (ret != plen || ret == 0)
 		{
 			fprintf(stderr, "Failed to read program: invalid length!\n");
 			DeallocateVM(vm);
 			continue;
 		}
 		
+		printf("Compiling program into 8-byte segments\n");
+		
 		// Compile the VM
 		CompileVM(vm, data, plen);
+		
+		printf("Cleaning up and continuing to next program...\n");
 		
 		// We don't need this anymore
 		free(data);
@@ -667,6 +745,8 @@ int main(int argc, char **argv)
 		// vm, we can add it to the linked list
 		prev = vm;
 	}
+	
+	printf("Starting program threads\n");
 	
 	// Initialize the mutex
 	mtx_init(&listmutex, mtx_plain);
@@ -683,8 +763,24 @@ int main(int argc, char **argv)
 			fprintf(stderr, "Failed to start a new program thread for program %s!\n", vm->name);
 	}
 	
+	printf("Waiting for threads to finish\n");
+	
 	// Unlock and let the threads do their thing.
 	mtx_unlock(&listmutex);
+	
+	// WARNING: this is technically a race
+	// condition but I am too lazy to write
+	// code to handle it.
+	//
+	// Wait for the threads to finish.
+	for (vm_t *vm = first; vm; vm = vm->next)
+	{
+		int res = 0;
+		thrd_join(vm->thread, &res);
+	}
+	
+	// We're done with the mutex
+	mtx_destroy(&listmutex);
 	
         return 0;
 }
