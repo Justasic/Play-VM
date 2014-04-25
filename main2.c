@@ -262,7 +262,7 @@ instruction_t *DecodeInstruction(vm_t *vm)
 	
 // 	printf("instruction pointer: %zu\n", vm->ip);
 	ins->opcode = vm->program[vm->ip]->opcode;
- 	printf("Running instruction \"0x%.4X\" at ip: %zu\n", ins->opcode, vm->ip);
+ 	printf("Running instruction \"0x%.4X\" of type %d at ip: %zu\n", ins->opcode, ins->type, vm->ip);
 	DecodeOperand(ins, vm->program[vm->ip]->operands);
 	
 	return ins;
@@ -357,10 +357,23 @@ void interpret(vm_t *vm)
 			break;
 		case OP_DIV:
 			// Divide values
+			// because math is fucking stupid I have to
+			// have an additional fucking check to make sure
+			// none of this shit divides by zero
 			if (ins->type == OP_FLAG_IMMEDIATE)
-				vm->regs[ins->reg->r0] /= ins->reg->imm;
+			{
+				if (vm->regs[ins->reg->r0] == 0 || ins->reg->imm == 0)
+					fprintf(stderr, "Program attempted to divide by zero!\n");
+				else
+					vm->regs[ins->reg->r0] /= ins->reg->imm;
+			}
 			else if(ins->type == OP_FLAG_REGISTER)
-				vm->regs[ins->reg->r0] /= vm->regs[ins->reg->r1];
+			{
+				if (vm->regs[ins->reg->r0] == 0 || vm->regs[ins->reg->r1] == 0)
+					fprintf(stderr, "Program attempted to divide by zero!\n");
+				else
+					vm->regs[ins->reg->r0] /= vm->regs[ins->reg->r1];
+			}
 			CheckFlags(vm, vm->regs[ins->reg->r0]);
 			break;
 		case OP_XOR:
